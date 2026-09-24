@@ -17,7 +17,7 @@ Additions to Ballest of Them All's track editor, as a plugin for the
 
 ## Install
 
-In game: footer **plugins** > **open** > **browse** > **Create Extensions** > **install**. Its settings are under
+In game: footer **plugins** > **browse** > **Create Extensions** > **install**. Its settings are under
 **installed** > Create Extensions > **settings**.
 
 ## License
