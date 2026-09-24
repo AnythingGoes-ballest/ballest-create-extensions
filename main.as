@@ -9,8 +9,8 @@
 //   * "Rotate multiple pieces around their centre" (a setting, off by default): rotating two or more pieces turns
 //     them about the centre of the selection instead of the last selected piece.
 
-[Setting name="Placement distance" min=0 max=5000 description="How far in front of the camera new pieces are placed (0: where the game puts them)"]
-float PlacementDistance = 0;
+[Setting name="Placement distance" min=0 max=2000 description="How far in front of the camera new pieces are placed (0: where the game puts them)"]
+int PlacementDistance = 0;
 
 [Setting name="Snap moved pieces to whole units" description="After a move, selected pieces are rounded to whole units"]
 bool SnapMoves = false;
@@ -34,10 +34,15 @@ void Main()
     section.SetBackground(0, 0, 0, 0);
     section.AddText("rotated copy", 18).SetColor(0.7f, 0.7f, 0.75f, 1);
     section.NewRow();
+    // Each axis label in its colour on the rotation gizmo (Unreal's axis colours, linear): X red, Y green, Z blue.
     array<string> axes = {"X", "Y", "Z"};
+    array<float> red = {0.594f, 0.1349f, 0.0251f};
+    array<float> green = {0.0197f, 0.3959f, 0.207f};
+    array<float> blue = {0, 0, 0.85f};
     for (uint i = 0; i < axes.length(); i++)
     {
         UI::CheckBox@ box = section.AddCheckBox(axes[i], 16);
+        box.SetColor(red[i], green[i], blue[i], 1);
         box.checked = i == 2;               // Z is the usual one: a copy turned around on the ground
         axisBoxes.insertLast(box);
         UI::TextInput@ angle = section.AddTextInput(56, "180", 16);

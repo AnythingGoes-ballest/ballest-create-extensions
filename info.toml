@@ -1,9 +1,9 @@
 [meta]
 name = "Create Extensions"
-version = "0.1.0"
+version = "0.2.0"
 author = "AnythingGoes"
 description = "Track editor extras: whole-unit placement, placement distance, rotated copies, Tab between transform boxes."
-min_host = "0.6.0"
+min_host = "0.7.0"
 
 [script]
 files = ["main.as"]
