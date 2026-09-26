@@ -1,7 +1,7 @@
 # Create Extensions
 
 Additions to Ballest of Them All's track editor, as a plugin for the
-[Ballest plugin manager](https://github.com/AnythingGoes-ballest/ballest-plugin-manager) (host 0.10.0 or newer).
+[Ballest plugin manager](https://github.com/AnythingGoes-ballest/ballest-plugin-manager) (host 0.11.0 or newer).
 
 - **Whole-unit placement:** a piece placed from the palette lands on whole-unit coordinates, never fractions.
 - **Placement distance** (setting, default 0): places new pieces this far in front of the camera; 0 leaves them where

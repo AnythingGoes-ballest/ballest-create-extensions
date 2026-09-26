@@ -433,8 +433,21 @@ void HandleClicks()
                 if (s >= 0)
                     singles.removeAt(s);
             }
-        Editor::Select(selection);
+        // Only when it changes: selecting again while the button is still down ends the drag the press began (the
+        // gizmo is bound to the selection), so pieces could not be moved (reported after the game's 2026-09-25 update).
+        if (!SameSet(selection, Editor::Selection()))
+            Editor::Select(selection);
     }
+}
+
+bool SameSet(const array<int>@ a, const array<int>@ b)
+{
+    if (a.length() != b.length())
+        return false;
+    for (uint i = 0; i < a.length(); i++)
+        if (!Contains(b, a[i]))
+            return false;
+    return true;
 }
 
 // Selections made other ways (the drag box, select all, undo) take whole groups too.
