@@ -14,12 +14,17 @@
 //   * Groups: G groups the selected pieces, U ungroups them (both listed in the editor's key list). Clicking any
 //     piece of a group selects the whole group; Alt+click selects just that piece. Groups are saved per map in this
 //     plugin's storage (the map file is not changed) and found again by each piece's kind and position.
+//   * Drag to select (a setting, on by default): pressing on empty space and dragging draws a box, and letting go
+//     selects every piece whose middle is inside it; with Shift or Ctrl held they are added to the selection.
 
 [Setting name="Placement distance" min=0 max=2000 description="How far in front of the camera new pieces are placed (0: where the game puts them)"]
 int PlacementDistance = 0;
 
 [Setting name="Snap moved pieces to whole units" description="After a move, selected pieces are rounded to whole units"]
 bool SnapMoves = false;
+
+[Setting name="Drag to select" description="Drag on empty space to select every piece inside the box (Shift or Ctrl adds them)"]
+bool DragSelect = true;
 
 UI::Window@ section;
 array<UI::CheckBox@> axisBoxes;
@@ -84,6 +89,20 @@ void Main()
     Editor::AddHotkey(folder + "keyboard_u.png", "ungroup");
     Editor::AddHotkey("/Game/Art/UI/Textures/KeyboardMouse/keyboard_alt.keyboard_alt", "select one piece",
                       "/Game/Art/UI/Textures/KeyboardMouse/mouse_left.mouse_left");
+    Editor::AddHotkey("/Game/Art/UI/Textures/KeyboardMouse/mouse_left.mouse_left", "drag: select in a box");
+
+    // The box: a faint fill and four edges, placed over the viewport while dragging.
+    for (uint i = 0; i < 5; i++)
+    {
+        UI::Window@ part = UI::CreateWindow();
+        if (i == 0)
+            part.SetBackground(0.25f, 0.55f, 1.0f, 0.12f);
+        else
+            part.SetBackground(0.35f, 0.65f, 1.0f, 0.9f);
+        part.SetRect(0, 0, 1, 1);
+        part.visible = false;
+        boxParts.insertLast(part);
+    }
     Log::Info("create extensions ready");
 }
 
@@ -400,7 +419,12 @@ void HandleClicks()
         bool adding = (flags & (Editor::ClickShift | Editor::ClickCtrl)) != 0;
         array<int>@ selection = Editor::Selection();
         if (piece < 0)
+        {
+            // A press on empty space: the start of a drag to select, unless the button is already up.
+            if (DragSelect && !alt)
+                ArmBox(adding);
             continue;
+        }
         int g = GroupOf(piece);
         if (alt)
         {
@@ -449,6 +473,148 @@ bool SameSet(const array<int>@ a, const array<int>@ b)
             return false;
     return true;
 }
+
+// --- drag to select --------------------------------------------------------------------------------------------------
+// A press on empty space arms the box; once the mouse has moved a few pixels with the button down, the box shows,
+// and when the button is let go every piece whose middle is on screen inside it is selected (added, with Shift or
+// Ctrl). The selection only changes after the button is up, so no drag of the game's is ever cut short.
+const float BOX_START = 6;         // pixels the mouse must move before a press becomes a box
+const float BOX_EDGE = 1.5f;
+array<UI::Window@> boxParts;        // fill, then top, bottom, left, right
+bool boxArmed = false, boxShown = false, boxAdding = false;
+float boxX0, boxY0, boxX1, boxY1;
+array<int> boxBase;                 // the selection it adds to (Shift or Ctrl): as it was before the press
+array<int> outlined;                // pieces given the selection outline while the box is up (not selected yet)
+
+void ArmBox(bool adding)
+{
+    // Only a press on empty space: the game's own handling of one leaves nothing selected (with or without Shift or
+    // Ctrl), while a press on the gizmo keeps the selection (measured; the editor's IsHoveringGizmo answers no even
+    // then on this game version).
+    if (Editor::Selection().length() > 0)
+        return;
+    float x, y;
+    if (!Input::Down(Input::MouseLeft) || !Input::MousePosition(x, y))
+    {
+        if (adding && !SameSet(lastSelection, Editor::Selection()))
+            Editor::Select(lastSelection);      // a quick Shift or Ctrl click on empty space keeps the selection
+        return;
+    }
+    boxArmed = true;
+    boxShown = false;
+    boxAdding = adding;
+    boxX0 = boxX1 = x;
+    boxY0 = boxY1 = y;
+    // The game's own Shift or Ctrl press on empty space clears the selection (measured: "the game left 0
+    // selected"), so the one to add to is last frame's, from before the press.
+    boxBase = adding ? lastSelection : array<int>();
+}
+
+void ShowBox(bool on)
+{
+    for (uint i = 0; i < boxParts.length(); i++)
+        boxParts[i].visible = on;
+    if (!on)
+        return;
+    float left = Min(boxX0, boxX1), top = Min(boxY0, boxY1);
+    float width = Max(1.0f, Abs(boxX1 - boxX0)), height = Max(1.0f, Abs(boxY1 - boxY0));
+    boxParts[0].SetRect(left, top, width, height);
+    boxParts[1].SetRect(left, top, width, BOX_EDGE);
+    boxParts[2].SetRect(left, top + height - BOX_EDGE, width, BOX_EDGE);
+    boxParts[3].SetRect(left, top, BOX_EDGE, height);
+    boxParts[4].SetRect(left + width - BOX_EDGE, top, BOX_EDGE, height);
+}
+
+void UpdateBox()
+{
+    if (!boxArmed)
+        return;
+    if (Input::Down(Input::MouseLeft))
+    {
+        float x, y;
+        if (Input::MousePosition(x, y))
+        {
+            boxX1 = x;
+            boxY1 = y;
+        }
+        if (!boxShown && (Abs(boxX1 - boxX0) > BOX_START || Abs(boxY1 - boxY0) > BOX_START))
+            boxShown = true;
+        if (boxShown)
+            ShowBox(true);
+        // While the button is down the pieces that will be selected show the editor's outline: those selected
+        // before (the game's Shift or Ctrl press on empty space took theirs away) and those in the box.
+        array<int> preview = boxBase;
+        if (boxShown)
+        {
+            array<int>@ inside = InsideBox();
+            for (uint i = 0; i < inside.length(); i++)
+                if (!Contains(preview, inside[i]))
+                    preview.insertLast(inside[i]);
+        }
+        Outline(preview);
+        return;
+    }
+    if (boxShown)
+        SelectInBox();
+    else if (boxAdding && !SameSet(boxBase, Editor::Selection()))
+        Editor::Select(boxBase);            // a Shift or Ctrl click on empty space keeps the selection
+    array<int> none;
+    Outline(none);                          // the selection draws its own outlines from here
+    ShowBox(false);
+    boxArmed = boxShown = false;
+}
+
+// The pieces whose middle is on screen inside the box.
+array<int>@ InsideBox()
+{
+    float left = Min(boxX0, boxX1), right = Max(boxX0, boxX1);
+    float top = Min(boxY0, boxY1), bottom = Max(boxY0, boxY1);
+    array<int> inside;
+    array<int>@ pieces = Editor::Pieces();
+    for (uint i = 0; i < pieces.length(); i++)
+    {
+        float x, y;
+        if (Editor::ScreenPosition(pieces[i], x, y) && x >= left && x <= right && y >= top && y <= bottom)
+            inside.insertLast(pieces[i]);
+    }
+    return inside;
+}
+
+void SelectInBox()
+{
+    array<int>@ inside = InsideBox();
+    array<int> selection = boxBase;
+    for (uint i = 0; i < inside.length(); i++)
+        if (!Contains(selection, inside[i]))
+            selection.insertLast(inside[i]);
+    if (!SameSet(selection, Editor::Selection()))
+        Editor::Select(selection);
+    Log::Info("drag select: " + inside.length() + " piece(s) in the box" + (boxAdding ? ", added" : ""));
+}
+
+// Gives exactly these pieces the outline (on top of the game's own for selected pieces). Pieces that are selected
+// keep theirs when taken off the list: the game drew it.
+void Outline(const array<int>@ pieces)
+{
+    array<int>@ selected = Editor::Selection();
+    for (int i = int(outlined.length()) - 1; i >= 0; i--)
+        if (!Contains(pieces, outlined[i]))
+        {
+            if (!Contains(selected, outlined[i]))
+                Editor::SetOutline(outlined[i], false);
+            outlined.removeAt(i);
+        }
+    for (uint i = 0; i < pieces.length(); i++)
+        if (!Contains(outlined, pieces[i]) && !Contains(selected, pieces[i]))
+        {
+            Editor::SetOutline(pieces[i], true);
+            outlined.insertLast(pieces[i]);
+        }
+}
+
+float Min(float a, float b) { return a < b ? a : b; }
+float Max(float a, float b) { return a > b ? a : b; }
+float Abs(float a) { return a < 0 ? -a : a; }
 
 // Selections made other ways (the drag box, select all, undo) take whole groups too.
 void CompleteGroups()
@@ -552,6 +718,7 @@ void KeepGroups()
     ResolveSaved();
     DropMissing();
     HandleClicks();
+    UpdateBox();
     CompleteGroups();
     if ((Input::Pressed(Input::G) || Input::Pressed(Input::U)) && !Editor::Typing())
     {
@@ -577,6 +744,10 @@ void Update(float dt)
         toast.visible = false;
     if (!open)
     {
+        if (boxArmed)
+            ShowBox(false);
+        boxArmed = boxShown = false;
+        outlined.resize(0);
         groupsMap = "";                     // pieces get new ids when the editor opens again
         groups.resize(0);
         lastSelection.resize(0);

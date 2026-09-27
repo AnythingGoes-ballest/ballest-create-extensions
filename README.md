@@ -1,8 +1,11 @@
 # Create Extensions
 
 Additions to Ballest of Them All's track editor, as a plugin for the
-[Ballest plugin manager](https://github.com/AnythingGoes-ballest/ballest-plugin-manager) (host 0.11.0 or newer).
+[Ballest plugin manager](https://github.com/AnythingGoes-ballest/ballest-plugin-manager) (host 0.13.0 or newer).
 
+- **Drag to select** (setting, on by default): press on empty space and drag to draw a box; letting go selects every
+  piece whose middle is inside it. Pieces show the selection outline while the box covers them. **Shift+drag** or
+  **Ctrl+drag** adds them to the pieces already selected. Presses on a piece or the gizmo work as before.
 - **Whole-unit placement:** a piece placed from the palette lands on whole-unit coordinates, never fractions.
 - **Placement distance** (setting, default 0): places new pieces this far in front of the camera; 0 leaves them where
   the game puts them. Set it with the slider or type an exact value. The move/rotate/scale gizmo goes with the piece.
