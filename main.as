@@ -16,6 +16,8 @@
 //     plugin's storage (the map file is not changed) and found again by each piece's kind and position.
 //   * Drag to select (a setting, on by default): pressing on empty space and dragging draws a box, and letting go
 //     selects every piece whose middle is inside it; with Shift or Ctrl held they are added to the selection.
+//   * No piece limit (a setting, off by default): the track editor's piece budget (300) no longer stops new pieces
+//     while it is on; the game's own limit comes back when it is turned off or the plugin stops.
 //   * Last run's path (a setting, on by default): during a test run the ball's path is drawn behind it as a
 //     see-through trail, and stays when you go back to editing, so you can see where the ball went. A new test run,
 //     or a restart in one, starts a new path.
@@ -28,6 +30,9 @@ bool SnapMoves = false;
 
 [Setting name="Drag to select" description="Drag on empty space to select every piece inside the box (Shift or Ctrl adds them)"]
 bool DragSelect = true;
+
+[Setting name="No piece limit" description="Build past the game's 300-piece budget (off: the game's limit applies)"]
+bool NoPieceLimit = false;
 
 [Setting name="Last run's path" description="Draw the ball's path during a test run and keep it while you edit, until the next test run"]
 bool ShowPath = true;
@@ -946,8 +951,25 @@ void UpdatePath()
     DrawPath(false);
 }
 
+// The piece budget's limit: raised far out of reach while the setting is on, the game's own (0) while it is off.
+const int NO_LIMIT = 100000;
+int appliedLimit = -1;
+
+void KeepPieceLimit()
+{
+    int wanted = NoPieceLimit ? NO_LIMIT : 0;
+    if (wanted == appliedLimit)
+        return;
+    if (Editor::SetBudgetLimit(wanted))
+    {
+        appliedLimit = wanted;
+        Log::Info(NoPieceLimit ? "piece limit off: build past the game's budget" : "piece limit back to the game's own (" + Editor::BudgetLimit() + ")");
+    }
+}
+
 void Update(float dt)
 {
+    KeepPieceLimit();
     UpdatePath();
     bool open = Editor::IsOpen();
     section.visible = open;

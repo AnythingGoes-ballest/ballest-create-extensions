@@ -1,7 +1,7 @@
 # Create Extensions
 
 Additions to Ballest of Them All's track editor, as a plugin for the
-[Ballest plugin manager](https://github.com/AnythingGoes-ballest/ballest-plugin-manager) (host 0.15.2 or newer).
+[Ballest plugin manager](https://github.com/AnythingGoes-ballest/ballest-plugin-manager) (host 0.16.1 or newer).
 
 - **Drag to select** (setting, on by default): press on empty space and drag to draw a box; letting go selects every
   piece whose middle is inside it. Pieces show the selection outline while the box covers them. **Shift+drag** or
@@ -27,6 +27,10 @@ Additions to Ballest of Them All's track editor, as a plugin for the
   piece of a group selects the whole group; **Alt+click** selects just that one piece. Groups are remembered per map
   by this plugin (the map file isn't changed, so other players see separate pieces), and found again by each piece's
   kind and position.
+- **No piece limit** (setting, off by default): build past the track editor's piece budget (300 pieces). While it's
+  on, the budget no longer stops new pieces or pastes, and the bar at the top measures against the raised limit.
+  Turned off, or with the plugin stopped, the game's own limit applies again. Another player's game keeps the game's
+  limit, so a map far over 300 pieces is only fully editable with this setting on.
 - **Last run's path** (setting, on by default): during a test run the ball's path is drawn behind it as a see-through
   trail, and stays when you go back to editing, so you can see where the ball went. A new test run, or a restart in
   one, starts a new path. **Path colour** (a hue), **Path thickness** and **Path opacity** (default 25%) are settings.
