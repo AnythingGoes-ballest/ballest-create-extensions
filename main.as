@@ -188,7 +188,7 @@ void PlaceNewPieces()
     for (uint i = 0; i < placed.length(); i++)
         if (Contains(selection, placed[i]))
         {
-            Editor::Select(selection);
+            SelectWhenUp(selection);
             break;
         }
 }
@@ -487,11 +487,72 @@ void HandleClicks()
                 if (s >= 0)
                     singles.removeAt(s);
             }
-        // Only when it changes: selecting again while the button is still down ends the drag the press began (the
-        // gizmo is bound to the selection), so pieces could not be moved (reported after the game's 2026-09-25 update).
+        // Only when it changes, and only once the button is up: selecting while it is still down ends the drag the
+        // press began (the gizmo is bound to the selection), so pieces could not be moved (reported after the game's
+        // 2026-09-25 update), and a group clicked mid-press left pieces stuck and the gizmo gone (reported 2026-09-29).
         if (!SameSet(selection, Editor::Selection()))
-            Editor::Select(selection);
+            SelectWhenUp(selection);
     }
+}
+
+// A selection waiting for the left button to be let go. The pieces selected at the press are noted: if any of them
+// moved or turned before the button came up, the press was on the gizmo (a drag of the piece picked alone with Alt,
+// say), not a pick, and the selection is left as the drag left it.
+array<int> pending;
+bool hasPending = false;
+array<int> pressedIds;
+array<double> pressedAt;                // x, y, z, pitch, yaw, roll for each
+
+void SelectWhenUp(const array<int>@ selection)
+{
+    if (!Input::Down(Input::MouseLeft))
+    {
+        Editor::Select(selection);
+        return;
+    }
+    pending = selection;
+    hasPending = true;
+    pressedIds = Editor::Selection();
+    pressedAt.resize(0);
+    for (uint i = 0; i < pressedIds.length(); i++)
+    {
+        double x = 0, y = 0, z = 0, p = 0, w = 0, r = 0;
+        Editor::GetLocation(pressedIds[i], x, y, z);
+        Editor::GetRotation(pressedIds[i], p, w, r);
+        pressedAt.insertLast(x); pressedAt.insertLast(y); pressedAt.insertLast(z);
+        pressedAt.insertLast(p); pressedAt.insertLast(w); pressedAt.insertLast(r);
+    }
+}
+
+bool MovedSincePress()
+{
+    for (uint i = 0; i < pressedIds.length(); i++)
+    {
+        double x = 0, y = 0, z = 0, p = 0, w = 0, r = 0;
+        if (!Editor::GetLocation(pressedIds[i], x, y, z) || !Editor::GetRotation(pressedIds[i], p, w, r))
+            continue;
+        array<double> now = {x, y, z, p, w, r};
+        for (uint k = 0; k < 6; k++)
+            if (Abs(now[k] - pressedAt[i * 6 + k]) > 0.001)
+                return true;
+    }
+    return false;
+}
+
+void ApplyPending()
+{
+    if (!hasPending || Input::Down(Input::MouseLeft))
+        return;
+    hasPending = false;
+    if (MovedSincePress())
+    {
+        Log::Info("the press dragged the selection: it stays as it is");
+        lastSelection = Editor::Selection();
+        return;
+    }
+    if (!SameSet(pending, Editor::Selection()))
+        Editor::Select(pending);
+    lastSelection = Editor::Selection();
 }
 
 bool SameSet(const array<int>@ a, const array<int>@ b)
@@ -649,6 +710,10 @@ float Abs(float a) { return a < 0 ? -a : a; }
 // Selections made other ways (the drag box, select all, undo) take whole groups too.
 void CompleteGroups()
 {
+    // Not while the button is down (see HandleClicks): last frame's selection is kept until it is up, which is also
+    // what a Shift or Ctrl drag-select adds to.
+    if (hasPending || Input::Down(Input::MouseLeft))
+        return;
     array<int>@ selection = Editor::Selection();
     for (int s = int(singles.length()) - 1; s >= 0; s--)
         if (!Contains(selection, singles[s]))
@@ -748,6 +813,7 @@ void KeepGroups()
     ResolveSaved();
     DropMissing();
     HandleClicks();
+    ApplyPending();
     UpdateBox();
     CompleteGroups();
     if ((Input::Pressed(Input::G) || Input::Pressed(Input::U)) && !Editor::Typing())
@@ -894,6 +960,7 @@ void Update(float dt)
             ShowBox(false);
         boxArmed = boxShown = false;
         outlined.resize(0);
+        hasPending = false;
         groupsMap = "";                     // pieces get new ids when the editor opens again
         groups.resize(0);
         lastSelection.resize(0);
