@@ -16,6 +16,9 @@
 //     plugin's storage (the map file is not changed) and found again by each piece's kind and position.
 //   * Drag to select (a setting, on by default): pressing on empty space and dragging draws a box, and letting go
 //     selects every piece whose middle is inside it; with Shift or Ctrl held they are added to the selection.
+//   * Last run's path (a setting, on by default): during a test run the ball's path is drawn behind it as a
+//     see-through trail, and stays when you go back to editing, so you can see where the ball went. A new test run,
+//     or a restart in one, starts a new path.
 
 [Setting name="Placement distance" min=0 max=2000 description="How far in front of the camera new pieces are placed (0: where the game puts them)"]
 int PlacementDistance = 0;
@@ -25,6 +28,33 @@ bool SnapMoves = false;
 
 [Setting name="Drag to select" description="Drag on empty space to select every piece inside the box (Shift or Ctrl adds them)"]
 bool DragSelect = true;
+
+[Setting name="Last run's path" description="Draw the ball's path during a test run and keep it while you edit, until the next test run"]
+bool ShowPath = true;
+
+[Setting name="Path colour" min=0 max=360 description="The path's colour, as a hue (0 red, 120 green, 200 blue)"]
+int PathHue = 190;
+
+[Setting name="Path thickness" min=1 max=20 description="How thick the path is (cm)"]
+float PathThickness = 5;
+
+[Setting name="Path opacity" min=5 max=100 description="How see-through the path is (percent opaque)"]
+int PathOpacity = 25;
+
+// --- last run's path ---
+// The ball's positions this attempt (x, y, z each), a point every PATH_STEP cm; drawn as tubes of PATH_CHUNK points
+// each, the last (still growing) one drawn again at most every PATH_REDRAW seconds.
+const double PATH_STEP = 25, PATH_JUMP = 1500, PATH_REDRAW = 0.1;
+const int PATH_CHUNK = 40;
+array<double> pathPoints;
+array<int> pathTubes;                    // Draw ids of the finished chunks
+int pathLive = 0;                        // the growing chunk's Draw id
+int pathDrawnPoints = 0;                 // points in the finished chunks' tubes
+double pathRedrawAt = 0;
+bool pathTesting = false;
+int pathRestarts = -1;
+int pathMap = -1;                        // the map the tubes were drawn on (they go with it)
+string pathLook;                         // the settings they were drawn with
 
 UI::Window@ section;
 array<UI::CheckBox@> axisBoxes;
@@ -735,8 +765,124 @@ void KeepGroups()
     }
 }
 
+void PathColour(float &out r, float &out g, float &out b)
+{
+    // a hue at full saturation, then made linear (the game's colours are), roughly
+    float h = float(PathHue % 360) / 60.0f;
+    int k = int(h);
+    float f = h - k, q = 1 - f;
+    r = k == 0 || k == 5 ? 1 : k == 1 ? q : k == 4 ? f : 0;
+    g = k == 1 || k == 2 ? 1 : k == 0 ? f : k == 3 ? q : 0;
+    b = k == 3 || k == 4 ? 1 : k == 2 ? f : k == 5 ? q : 0;
+    r *= r; g *= g; b *= b;
+}
+
+int PathTube(uint from, uint to)
+{
+    array<double> points;
+    for (uint i = from * 3; i < to * 3 && i < pathPoints.length(); i++)
+        points.insertLast(pathPoints[i]);
+    if (points.length() < 6)
+        return 0;
+    float r, g, b;
+    PathColour(r, g, b);
+    int id = Draw::Tube(points, PathThickness, r, g, b, false, PathOpacity / 100.0f);
+    return id > 0 ? id : 0;
+}
+
+void RemovePathTubes()
+{
+    for (uint i = 0; i < pathTubes.length(); i++)
+        Draw::Remove(pathTubes[i]);
+    pathTubes.resize(0);
+    if (pathLive > 0)
+        Draw::Remove(pathLive);
+    pathLive = 0;
+    pathDrawnPoints = 0;
+}
+
+void ClearPath()
+{
+    RemovePathTubes();
+    pathPoints.resize(0);
+}
+
+// The tubes brought up to the points: finished chunks once, the growing one again now and then.
+void DrawPath(bool now)
+{
+    int count = int(pathPoints.length() / 3);
+    while (count - pathDrawnPoints > PATH_CHUNK)
+    {
+        int end = pathDrawnPoints + PATH_CHUNK;
+        int id = PathTube(uint(pathDrawnPoints), uint(end + 1));    // one point shared with the next chunk
+        if (id > 0)
+            pathTubes.insertLast(id);
+        pathDrawnPoints = end;
+    }
+    if (!now && Host::Time() < pathRedrawAt)
+        return;
+    pathRedrawAt = Host::Time() + PATH_REDRAW;
+    if (pathLive > 0)
+        Draw::Remove(pathLive);
+    pathLive = PathTube(uint(pathDrawnPoints), uint(count));
+}
+
+// A test run records the ball's path (a new one each run and restart); back in the editor it stays drawn.
+void UpdatePath()
+{
+    string look = ShowPath + ":" + PathHue + ":" + PathThickness + ":" + PathOpacity;
+    bool testing = Editor::IsTesting();
+    bool inEditor = testing || Editor::IsOpen();
+    if (!inEditor)
+    {
+        if (pathPoints.length() > 0)
+            ClearPath();                    // left the editor: the path belonged to that track
+        pathTesting = false;
+        return;
+    }
+    // The tubes go with the map; drawn again from the points when it changed, or the settings did.
+    if (Host::MapNumber() != pathMap || look != pathLook)
+    {
+        pathMap = Host::MapNumber();
+        pathLook = look;
+        RemovePathTubes();
+        if (ShowPath)
+            DrawPath(true);
+    }
+    if (testing && !pathTesting)
+    {
+        ClearPath();                        // a new test run: a new path
+        pathRestarts = Race::Restarts();
+    }
+    pathTesting = testing;
+    if (!testing || !ShowPath)
+        return;
+    double x, y, z;
+    if (!Race::BallPosition(x, y, z))
+        return;
+    uint n = pathPoints.length();
+    if (n >= 3)
+    {
+        double dx = x - pathPoints[n - 3], dy = y - pathPoints[n - 2], dz = z - pathPoints[n - 1];
+        double d = dx * dx + dy * dy + dz * dz;
+        // a restart (its counter, or the ball jumping back): a new path
+        if (Race::Restarts() != pathRestarts || d > PATH_JUMP * PATH_JUMP)
+        {
+            pathRestarts = Race::Restarts();
+            ClearPath();
+        }
+        else if (d < PATH_STEP * PATH_STEP)
+            return;
+    }
+    pathPoints.insertLast(x);
+    pathPoints.insertLast(y);
+    pathPoints.insertLast(z);
+    DrawPath(false);
+}
+
 void Update(float dt)
 {
+    UpdatePath();
     bool open = Editor::IsOpen();
     section.visible = open;
     Editor::SetTabCycling(open);
