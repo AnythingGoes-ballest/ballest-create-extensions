@@ -27,7 +27,7 @@ Additions to Ballest of Them All's track editor, as a plugin for the
   piece of a group selects the whole group; **Alt+click** selects just that one piece. Groups are remembered per map
   by this plugin (the map file isn't changed, so other players see separate pieces), and found again by each piece's
   kind and position.
-- **No piece limit** (setting, off by default): build past the track editor's piece budget (300 pieces). While it's
+- **No piece limit** (setting, on by default): build past the track editor's piece budget (300 pieces). While it's
   on, the budget no longer stops new pieces or pastes, and the bar at the top measures against the raised limit.
   Turned off, or with the plugin stopped, the game's own limit applies again. Another player's game keeps the game's
   limit, so a map far over 300 pieces is only fully editable with this setting on.

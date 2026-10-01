@@ -16,7 +16,7 @@
 //     plugin's storage (the map file is not changed) and found again by each piece's kind and position.
 //   * Drag to select (a setting, on by default): pressing on empty space and dragging draws a box, and letting go
 //     selects every piece whose middle is inside it; with Shift or Ctrl held they are added to the selection.
-//   * No piece limit (a setting, off by default): the track editor's piece budget (300) no longer stops new pieces
+//   * No piece limit (a setting, on by default): the track editor's piece budget (300) no longer stops new pieces
 //     while it is on; the game's own limit comes back when it is turned off or the plugin stops.
 //   * Last run's path (a setting, on by default): during a test run the ball's path is drawn behind it as a
 //     see-through trail, and stays when you go back to editing, so you can see where the ball went. A new test run,
@@ -32,7 +32,7 @@ bool SnapMoves = false;
 bool DragSelect = true;
 
 [Setting name="No piece limit" description="Build past the game's 300-piece budget (off: the game's limit applies)"]
-bool NoPieceLimit = false;
+bool NoPieceLimit = true;
 
 [Setting name="Last run's path" description="Draw the ball's path during a test run and keep it while you edit, until the next test run"]
 bool ShowPath = true;
