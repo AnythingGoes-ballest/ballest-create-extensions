@@ -21,16 +21,6 @@ Additions to Ballest of Them All's track editor, as a plugin for the
   - **center**: about the middle of the selection;
   - **mirrored**: each piece turns in place, and the pieces on either side of the middle turn opposite ways, as
     mirror images (the side of the last selected piece turns the way you drag).
-- **Deselect with Shift/Ctrl+click:** Shift+click or Ctrl+click on a selected piece takes it out of the selection (the
-  game's own clicks only add).
-- **Groups:** **G** groups the selected pieces, **U** ungroups them (both are in the editor's key list, with Alt+click). Clicking any
-  piece of a group selects the whole group; **Alt+click** selects just that one piece. Groups are remembered per map
-  by this plugin (the map file isn't changed, so other players see separate pieces), and found again by each piece's
-  kind and position.
-- **No piece limit** (setting, on by default): build past the track editor's piece budget (300 pieces). While it's
-  on, the budget no longer stops new pieces or pastes, and the bar at the top measures against the raised limit.
-  Turned off, or with the plugin stopped, the game's own limit applies again. Another player's game keeps the game's
-  limit, so a map far over 300 pieces is only fully editable with this setting on.
 - **Last run's path** (setting, on by default): during a test run the ball's path is drawn behind it as a see-through
   trail, and stays when you go back to editing, so you can see where the ball went. A new test run, or a restart in
   one, starts a new path. **Path colour** (a hue), **Path thickness** and **Path opacity** (default 25%) are settings.
@@ -43,3 +33,10 @@ In game: footer **plugins** > **browse** > **Create Extensions** > **install**. 
 ## License
 
 MIT
+
+## Removed in 0.8.0
+
+The game's October 6 update added its own grouping (**Ctrl+G**), turned the editor's piece budget off, and made
+**Ctrl+click** on a selected piece deselect it, so this plugin's groups (G / U, Alt+click one piece), its **No piece
+limit** setting and its Shift/Ctrl+click deselect are gone. Groups saved by earlier versions stay in the plugin's
+storage but are no longer used.

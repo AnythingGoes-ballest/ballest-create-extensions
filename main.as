@@ -10,17 +10,14 @@
 //   * A rotate button in the editor's toolbar, after the world/local toggle, with a dropdown for how two or more
 //     pieces rotate: default (the editor's own, about the last selected piece), center (about the middle of the
 //     selection) or mirrored (each piece turns in place, the two sides of the middle opposite ways).
-//   * Shift+click or Ctrl+click on a selected piece deselects it (the game's own clicks only ever add).
-//   * Groups: G groups the selected pieces, U ungroups them (both listed in the editor's key list). Clicking any
-//     piece of a group selects the whole group; Alt+click selects just that piece. Groups are saved per map in this
-//     plugin's storage (the map file is not changed) and found again by each piece's kind and position.
 //   * Drag to select (a setting, on by default): pressing on empty space and dragging draws a box, and letting go
 //     selects every piece whose middle is inside it; with Shift or Ctrl held they are added to the selection.
-//   * No piece limit (a setting, on by default): the track editor's piece budget (300) no longer stops new pieces
-//     while it is on; the game's own limit comes back when it is turned off or the plugin stops.
 //   * Last run's path (a setting, on by default): during a test run the ball's path is drawn behind it as a
 //     see-through trail, and stays when you go back to editing, so you can see where the ball went. A new test run,
 //     or a restart in one, starts a new path.
+// Groups, the No piece limit setting and Shift/Ctrl+click to deselect were removed in 0.8.0: since its 2026-10-06
+// update the game groups pieces itself (CTRL+G), has no piece budget, and Ctrl+click on a selected piece deselects it
+// (its FindAndGrab with bToggleSelection, read from the editor pawn).
 
 [Setting name="Placement distance" min=0 max=2000 description="How far in front of the camera new pieces are placed (0: where the game puts them)"]
 int PlacementDistance = 0;
@@ -30,9 +27,6 @@ bool SnapMoves = false;
 
 [Setting name="Drag to select" description="Drag on empty space to select every piece inside the box (Shift or Ctrl adds them)"]
 bool DragSelect = true;
-
-[Setting name="No piece limit" description="Build past the game's 300-piece budget (off: the game's limit applies)"]
-bool NoPieceLimit = true;
 
 [Setting name="Last run's path" description="Draw the ball's path during a test run and keep it while you edit, until the next test run"]
 bool ShowPath = true;
@@ -67,9 +61,6 @@ array<UI::TextInput@> angleBoxes;
 UI::Button@ copyButton;
 int copyRequested = 0;           // frames until the angles typed in the boxes are read (they are submitted first)
 
-UI::Window@ toast;               // a short message after grouping
-UI::Text@ toastText;
-double toastUntil = 0;
 
 const array<string> ROTATE_OPTIONS = {"default", "center", "mirrored"};
 int rotateChoice = -1;           // the toolbar dropdown
@@ -104,13 +95,6 @@ void Main()
     section.NewRow();
     @copyButton = section.AddButton("create rotated copy");
 
-    @toast = UI::CreateWindow();
-    toast.SetAnchor(0.5f, 1.0f);
-    toast.SetPivot(0.5f, 1.0f);
-    toast.SetOffset(0, -110);
-    @toastText = toast.AddText("", 16);
-    toast.visible = false;
-
     // 0.2's "Rotate multiple pieces around their centre" setting becomes the dropdown's "center".
     string oldSetting = Storage::Get("setting.RotateAroundCenter", "false") == "true" ? "1" : "0";
     rotateMode = int(parseInt(Storage::Get("rotateMode", oldSetting)));
@@ -119,11 +103,6 @@ void Main()
     rotateChoice = Editor::AddToolbarChoice("/Game/Art/UI/Textures/Editor/t_rotateIcon.t_rotateIcon", ROTATE_OPTIONS, rotateMode);
     Editor::SetRotateMode(Editor::RotateMode(rotateMode));
 
-    string folder = Plugins::Folder();
-    Editor::AddHotkey(folder + "keyboard_g.png", "group");
-    Editor::AddHotkey(folder + "keyboard_u.png", "ungroup");
-    Editor::AddHotkey("/Game/Art/UI/Textures/KeyboardMouse/keyboard_alt.keyboard_alt", "select one piece",
-                      "/Game/Art/UI/Textures/KeyboardMouse/mouse_left.mouse_left");
     Editor::AddHotkey("/Game/Art/UI/Textures/KeyboardMouse/mouse_left.mouse_left", "drag: select in a box");
 
     // The box: a faint fill and four edges, placed over the viewport while dragging.
@@ -139,14 +118,6 @@ void Main()
         boxParts.insertLast(part);
     }
     Log::Info("create extensions ready");
-}
-
-void Toast(const string &in message)
-{
-    toastText.text = message;
-    toast.visible = true;
-    toastUntil = Host::Time() + 2;
-    Log::Info(message);
 }
 
 double Round(double v)
@@ -259,250 +230,27 @@ void FollowRotateChoice()
     Log::Info("rotate: " + ROTATE_OPTIONS[rotateMode]);
 }
 
-// --- groups ------------------------------------------------------------------------------------------------------------
-// A group is its pieces (editor ids, which only live while the map is open) with each one's kind, to notice an id that
-// has come to mean another piece. Saved as "kind x y z;kind x y z|..." under "groups:<map>".
-class Group
-{
-    array<int> ids;
-    array<string> kinds;
-}
-array<Group@> groups;
-string groupsMap = "";           // the map the groups belong to ("" while the editor is closed)
-array<string> unresolved;        // saved groups whose pieces have not been found (yet): kept as saved
-double resolveUntil = 0;         // keep looking for them until then (pieces arrive while the map loads)
-double nextResolve = 0;
-string savedText = "";
-double nextSaveCheck = 0;
-array<int> singles;              // picked alone with Alt: their groups are not completed around them
-array<int> lastSelection;
-
-int GroupOf(int piece)
-{
-    for (uint g = 0; g < groups.length(); g++)
-        if (Contains(groups[g].ids, piece))
-            return int(g);
-    return -1;
-}
-
-string MapKey()
-{
-    string map = Editor::MapName();
-    return "groups:" + (map == "" ? "(unsaved)" : map);
-}
-
-string Fixed(double v)
-{
-    return formatFloat(Round(v * 10) / 10, "", 0, 1);
-}
-
-string Describe(const Group@ g)
-{
-    array<string> members;
-    for (uint i = 0; i < g.ids.length(); i++)
-    {
-        double x, y, z;
-        Editor::GetLocation(g.ids[i], x, y, z);
-        members.insertLast(g.kinds[i] + " " + Fixed(x) + " " + Fixed(y) + " " + Fixed(z));
-    }
-    return join(members, ";");
-}
-
-string GroupsText()
-{
-    array<string> parts;
-    for (uint g = 0; g < groups.length(); g++)
-        parts.insertLast(Describe(groups[g]));
-    for (uint u = 0; u < unresolved.length(); u++)
-        parts.insertLast(unresolved[u]);
-    return join(parts, "|");
-}
-
-void SaveGroups()
-{
-    string text = GroupsText();
-    if (text == savedText)
-        return;
-    Storage::Set(groupsMap, text);
-    savedText = text;
-}
-
-// A saved group whose every piece is on the map (same kind, within a unit of where it was saved): made a group again.
-bool Resolve(const string &in saved, const array<int>@ pieces, array<int>@ taken)
-{
-    array<string>@ members = saved.split(";");
-    Group g;
-    for (uint m = 0; m < members.length(); m++)
-    {
-        array<string>@ f = members[m].split(" ");
-        if (f.length() != 4)
-            return false;
-        double sx = parseFloat(f[1]), sy = parseFloat(f[2]), sz = parseFloat(f[3]);
-        int found = -1;
-        for (uint p = 0; p < pieces.length() && found < 0; p++)
-        {
-            if (Contains(taken, pieces[p]) || Contains(g.ids, pieces[p]) || Editor::PieceClass(pieces[p]) != f[0])
-                continue;
-            double x, y, z;
-            Editor::GetLocation(pieces[p], x, y, z);
-            if (Abs(x - sx) <= 1 && Abs(y - sy) <= 1 && Abs(z - sz) <= 1)
-                found = pieces[p];
-        }
-        if (found < 0)
-            return false;
-        g.ids.insertLast(found);
-        g.kinds.insertLast(f[0]);
-    }
-    if (g.ids.length() < 2)
-        return false;
-    for (uint i = 0; i < g.ids.length(); i++)
-        taken.insertLast(g.ids[i]);
-    groups.insertLast(g);
-    return true;
-}
-
-void ResolveSaved()
-{
-    if (unresolved.length() == 0 || Host::Time() < nextResolve)
-        return;
-    nextResolve = Host::Time() + 1;
-    array<int>@ pieces = Editor::Pieces();
-    array<int> taken;
-    for (uint g = 0; g < groups.length(); g++)
-        for (uint i = 0; i < groups[g].ids.length(); i++)
-            taken.insertLast(groups[g].ids[i]);
-    for (int u = int(unresolved.length()) - 1; u >= 0; u--)
-        if (Resolve(unresolved[u], pieces, taken))
-            unresolved.removeAt(u);
-    if (Host::Time() > resolveUntil && unresolved.length() > 0)
-    {
-        Log::Warn(unresolved.length() + " saved group(s) of " + groupsMap + " not found on the map; kept in storage");
-        nextResolve = 1e300;                // stop looking; they stay saved in case the pieces come back
-    }
-}
-
-void OpenGroups()
-{
-    groupsMap = MapKey();
-    groups.resize(0);
-    unresolved.resize(0);
-    singles.resize(0);
-    savedText = Storage::Get(groupsMap, "");
-    if (savedText != "")
-    {
-        array<string>@ saved = savedText.split("|");
-        for (uint i = 0; i < saved.length(); i++)
-            unresolved.insertLast(saved[i]);
-    }
-    resolveUntil = Host::Time() + 15;
-    nextResolve = 0;
-}
-
-// Pieces that were deleted, or whose id now means another piece, leave their group; a group of one is no group.
-void DropMissing()
-{
-    array<int>@ pieces = Editor::Pieces();
-    bool changed = false;
-    for (int g = int(groups.length()) - 1; g >= 0; g--)
-    {
-        Group@ group = groups[g];
-        for (int i = int(group.ids.length()) - 1; i >= 0; i--)
-            if (!Contains(pieces, group.ids[i]) || Editor::PieceClass(group.ids[i]) != group.kinds[i])
-            {
-                group.ids.removeAt(i);
-                group.kinds.removeAt(i);
-                changed = true;
-            }
-        if (group.ids.length() < 2)
-        {
-            groups.removeAt(g);
-            changed = true;
-        }
-    }
-    if (changed)
-        SaveGroups();
-}
-
-void AddGroupTo(array<int>@ selection, int g)
-{
-    for (uint i = 0; i < groups[g].ids.length(); i++)
-        if (!Contains(selection, groups[g].ids[i]))
-            selection.insertLast(groups[g].ids[i]);
-}
-
-void RemoveGroupFrom(array<int>@ selection, int g)
-{
-    for (uint i = 0; i < groups[g].ids.length(); i++)
-    {
-        int at = selection.find(groups[g].ids[i]);
-        if (at >= 0)
-            selection.removeAt(at);
-    }
-}
-
-// Clicks on the world, as the editor handled them: a grouped piece brings its group; Shift/Ctrl on a selected piece
-// takes it (and its group) out again; Alt works on the one piece only.
+// Clicks on the world, as the editor handled them: a press on empty space may start a drag to select.
 void HandleClicks()
 {
     int piece, flags;
     bool wasSelected;
     while (Editor::NextClick(piece, flags, wasSelected))
     {
-        if ((flags & Editor::ClickOnGizmo) != 0)
-            continue;                       // a drag of the gizmo, not a pick
+        if ((flags & Editor::ClickOnGizmo) != 0 || piece >= 0)
+            continue;                       // a drag of the gizmo, or a pick (the game's own)
         bool alt = (flags & Editor::ClickAlt) != 0;
         bool adding = (flags & (Editor::ClickShift | Editor::ClickCtrl)) != 0;
-        array<int>@ selection = Editor::Selection();
-        if (piece < 0)
-        {
-            // A press on empty space: the start of a drag to select, unless the button is already up.
-            if (DragSelect && !alt)
-                ArmBox(adding);
-            continue;
-        }
-        int g = GroupOf(piece);
-        if (alt)
-        {
-            if (!adding)
-                selection.resize(0);
-            int at = selection.find(piece);
-            if (adding && wasSelected && at >= 0)
-                selection.removeAt(at);
-            else if (at < 0)
-                selection.insertLast(piece);
-            if (!Contains(singles, piece))
-                singles.insertLast(piece);
-        }
-        else if (adding && wasSelected)
-        {
-            int at = selection.find(piece);
-            if (at >= 0)
-                selection.removeAt(at);
-            if (g >= 0)
-                RemoveGroupFrom(selection, g);
-        }
-        else if (g >= 0)
-        {
-            AddGroupTo(selection, g);
-        }
-        if (!alt && g >= 0)
-            for (uint i = 0; i < groups[g].ids.length(); i++)
-            {
-                int s = singles.find(groups[g].ids[i]);
-                if (s >= 0)
-                    singles.removeAt(s);
-            }
-        // Only when it changes, and only once the button is up: selecting while it is still down ends the drag the
-        // press began (the gizmo is bound to the selection), so pieces could not be moved (reported after the game's
-        // 2026-09-25 update), and a group clicked mid-press left pieces stuck and the gizmo gone (reported 2026-09-29).
-        if (!SameSet(selection, Editor::Selection()))
-            SelectWhenUp(selection);
+        // A press on empty space: the start of a drag to select, unless the button is already up.
+        if (DragSelect && !alt)
+            ArmBox(adding);
     }
 }
 
 // A selection waiting for the left button to be let go. The pieces selected at the press are noted: if any of them
 // moved or turned before the button came up, the press was on the gizmo (a drag of the piece picked alone with Alt,
 // say), not a pick, and the selection is left as the drag left it.
+array<int> lastSelection;          // the selection as it was last seen (a quick Shift/Ctrl click keeps it)
 array<int> pending;
 bool hasPending = false;
 array<int> pressedIds;
@@ -712,128 +460,12 @@ float Min(float a, float b) { return a < b ? a : b; }
 float Max(float a, float b) { return a > b ? a : b; }
 float Abs(float a) { return a < 0 ? -a : a; }
 
-// Selections made other ways (the drag box, select all, undo) take whole groups too.
-void CompleteGroups()
+// Clicks, the selection they wait to make, and the drag box.
+void KeepSelection()
 {
-    // Not while the button is down (see HandleClicks): last frame's selection is kept until it is up, which is also
-    // what a Shift or Ctrl drag-select adds to.
-    if (hasPending || Input::Down(Input::MouseLeft))
-        return;
-    array<int>@ selection = Editor::Selection();
-    for (int s = int(singles.length()) - 1; s >= 0; s--)
-        if (!Contains(selection, singles[s]))
-            singles.removeAt(s);
-    bool same = selection.length() == lastSelection.length();
-    for (uint i = 0; same && i < selection.length(); i++)
-        same = selection[i] == lastSelection[i];
-    if (same)
-        return;
-    uint before = selection.length();
-    for (uint g = 0; g < groups.length(); g++)
-    {
-        bool touched = false, single = false;
-        for (uint i = 0; i < groups[g].ids.length(); i++)
-        {
-            touched = touched || Contains(selection, groups[g].ids[i]);
-            single = single || Contains(singles, groups[g].ids[i]);
-        }
-        if (touched && !single)
-            AddGroupTo(selection, g);
-    }
-    if (selection.length() != before)
-        Editor::Select(selection);
-    lastSelection = Editor::Selection();
-}
-
-void GroupSelection()
-{
-    array<int>@ selection = Editor::Selection();
-    if (selection.length() < 2)
-    {
-        Toast("select two or more pieces to group");
-        return;
-    }
-    // A piece is in one group only: grouping pieces takes them out of the groups they were in.
-    for (int g = int(groups.length()) - 1; g >= 0; g--)
-    {
-        for (int i = int(groups[g].ids.length()) - 1; i >= 0; i--)
-            if (Contains(selection, groups[g].ids[i]))
-            {
-                groups[g].ids.removeAt(i);
-                groups[g].kinds.removeAt(i);
-            }
-        if (groups[g].ids.length() < 2)
-            groups.removeAt(g);
-    }
-    Group g;
-    for (uint i = 0; i < selection.length(); i++)
-    {
-        g.ids.insertLast(selection[i]);
-        g.kinds.insertLast(Editor::PieceClass(selection[i]));
-    }
-    groups.insertLast(g);
-    singles.resize(0);
-    SaveGroups();
-    Toast("grouped " + selection.length() + " pieces");
-}
-
-void UngroupSelection()
-{
-    array<int>@ selection = Editor::Selection();
-    int removed = 0;
-    for (int g = int(groups.length()) - 1; g >= 0; g--)
-    {
-        bool touched = false;
-        for (uint i = 0; i < selection.length() && !touched; i++)
-            touched = Contains(groups[g].ids, selection[i]);
-        if (touched)
-        {
-            groups.removeAt(g);
-            removed++;
-        }
-    }
-    SaveGroups();
-    Toast(removed == 0 ? "no group selected" : "ungrouped " + removed + (removed == 1 ? " group" : " groups"));
-}
-
-void KeepGroups()
-{
-    if (MapKey() != groupsMap)
-    {
-        // A map that was just saved for the first time takes its groups along from "(unsaved)".
-        string previous = groupsMap;
-        bool firstSave = previous == "groups:(unsaved)" && groups.length() > 0;
-        if (firstSave)
-        {
-            groupsMap = MapKey();
-            savedText = "";
-            SaveGroups();
-            Storage::Set(previous, "");
-        }
-        else
-        {
-            OpenGroups();
-        }
-    }
-    ResolveSaved();
-    DropMissing();
     HandleClicks();
     ApplyPending();
     UpdateBox();
-    CompleteGroups();
-    if ((Input::Pressed(Input::G) || Input::Pressed(Input::U)) && !Editor::Typing())
-    {
-        if (Input::Pressed(Input::G))
-            GroupSelection();
-        else
-            UngroupSelection();
-    }
-    // Moved pieces: their saved positions follow once the mouse is up.
-    if (Host::Time() >= nextSaveCheck && !Input::Down(Input::MouseLeft))
-    {
-        nextSaveCheck = Host::Time() + 1;
-        SaveGroups();
-    }
 }
 
 void PathColour(float &out r, float &out g, float &out b)
@@ -952,30 +584,12 @@ void UpdatePath()
 }
 
 // The piece budget's limit: raised far out of reach while the setting is on, the game's own (0) while it is off.
-const int NO_LIMIT = 100000;
-int appliedLimit = -1;
-
-void KeepPieceLimit()
-{
-    int wanted = NoPieceLimit ? NO_LIMIT : 0;
-    if (wanted == appliedLimit)
-        return;
-    if (Editor::SetBudgetLimit(wanted))
-    {
-        appliedLimit = wanted;
-        Log::Info(NoPieceLimit ? "piece limit off: build past the game's budget" : "piece limit back to the game's own (" + Editor::BudgetLimit() + ")");
-    }
-}
-
 void Update(float dt)
 {
-    KeepPieceLimit();
     UpdatePath();
     bool open = Editor::IsOpen();
     section.visible = open;
     Editor::SetTabCycling(open);
-    if (toast.visible && (!open || Host::Time() > toastUntil))
-        toast.visible = false;
     if (!open)
     {
         if (boxArmed)
@@ -983,15 +597,12 @@ void Update(float dt)
         boxArmed = boxShown = false;
         outlined.resize(0);
         hasPending = false;
-        groupsMap = "";                     // pieces get new ids when the editor opens again
-        groups.resize(0);
-        lastSelection.resize(0);
         return;
     }
     PlaceNewPieces();
     SnapSelection();
     FollowRotateChoice();
-    KeepGroups();
+    KeepSelection();
 
     // The angles are read from the boxes as submitted text, so they are submitted first and read a frame later.
     if (copyButton.Clicked())
